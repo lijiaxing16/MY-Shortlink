@@ -1,5 +1,6 @@
 // ============================================================
-//  Short Link Generator ULTRA Edition (Cloudflare Worker)
+//  Short Link Generator ULTRA Edition v2.0 (Cloudflare Worker)
+//  新增: 链接伪装、设备跳转、地理跳转、A/B测试、智能路由
 // ============================================================
 
 export default {
@@ -7,27 +8,22 @@ export default {
         const url = new URL(request.url);
         const path = url.pathname;
 
-        // 1. 首页
         if (path === '/') {
             return handleHomePage();
         }
 
-        // 2. 统计页面
         if (path === '/stats' || path.startsWith('/stats/')) {
             return handleStatsPage();
         }
 
-        // 3. 管理页面
         if (path === '/manage') {
             return handleManagePage();
         }
 
-        // 4. API 路由
         if (path.startsWith('/api/')) {
             return handleAPI(request, env, path);
         }
 
-        // 5. 短链接访问
         if (path.length > 1) {
             return handleShortLink(request, env, ctx, path.substring(1));
         }
@@ -36,10 +32,8 @@ export default {
     }
 };
 
-// 系统保留后缀
 const RESERVED_PATHS = ['api', 'stats', 'manage', 'favicon.ico', 'robots.txt', 'admin'];
 
-// 生成短码
 function generateShortCode(length = 6) {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let result = '';
@@ -49,7 +43,6 @@ function generateShortCode(length = 6) {
     return result;
 }
 
-// 格式化 URL
 function formatUrl(string) {
     try {
         let str = string.trim();
@@ -63,7 +56,6 @@ function formatUrl(string) {
     }
 }
 
-// 获取客户端 IP
 function getClientIP(request) {
     return request.headers.get('CF-Connecting-IP') || 
            request.headers.get('X-Forwarded-For')?.split(',')[0] || 
@@ -71,8 +63,20 @@ function getClientIP(request) {
            'unknown';
 }
 
+function getDeviceType(userAgent) {
+    const ua = userAgent.toLowerCase();
+    if (/mobile|android|iphone|ipod|blackberry|windows phone/i.test(ua)) return 'mobile';
+    if (/tablet|ipad|kindle|silk/i.test(ua)) return 'tablet';
+    if (/bot|crawler|spider|scraper|facebook|whatsapp|telegram/i.test(ua)) return 'bot';
+    return 'desktop';
+}
+
+function getCountry(request) {
+    return request.cf?.country || request.headers.get('CF-IPCountry') || 'US';
+}
+
 // ------------------------------------------------------------
-// 🎨 公共样式 - 霓虹玻璃风格
+// 🎨 公共样式 - 霓虹玻璃风格 (增强)
 // ------------------------------------------------------------
 const COMMON_STYLE = `
     :root {
@@ -132,7 +136,7 @@ const COMMON_STYLE = `
         border-radius: var(--radius);
         padding: 35px;
         width: 100%;
-        max-width: 780px;
+        max-width: 860px;
         box-shadow: var(--shadow);
         transition: var(--transition);
         position: relative;
@@ -157,6 +161,8 @@ const COMMON_STYLE = `
         margin-bottom: 28px;
         position: relative;
         z-index: 1;
+        flex-wrap: wrap;
+        gap: 10px;
     }
 
     .logo {
@@ -174,6 +180,7 @@ const COMMON_STYLE = `
         align-items: center;
         justify-content: center;
         font-size: 22px;
+        flex-shrink: 0;
     }
 
     h1 { 
@@ -189,6 +196,7 @@ const COMMON_STYLE = `
         display: flex;
         gap: 10px;
         align-items: center;
+        flex-wrap: wrap;
     }
 
     .theme-toggle, .nav-btn {
@@ -275,6 +283,12 @@ const COMMON_STYLE = `
         gap: 12px;
     }
 
+    .grid-4 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr 1fr;
+        gap: 10px;
+    }
+
     .btn-primary {
         width: 100%;
         background: linear-gradient(135deg, var(--primary), var(--primary-dark));
@@ -296,12 +310,7 @@ const COMMON_STYLE = `
     }
 
     .btn-primary:active { transform: translateY(0); }
-
-    .btn-primary:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-        transform: none;
-    }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
     .btn-secondary {
         background: var(--bg-card);
@@ -354,6 +363,23 @@ const COMMON_STYLE = `
         box-shadow: 0 6px 20px rgba(255, 107, 107, 0.3);
     }
 
+    .btn-outline {
+        background: transparent;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        padding: 8px 14px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: var(--transition);
+    }
+
+    .btn-outline:hover {
+        border-color: var(--primary);
+        color: var(--text-primary);
+        background: rgba(108, 99, 255, 0.05);
+    }
+
     .result-box {
         margin-top: 24px;
         padding: 24px;
@@ -378,6 +404,8 @@ const COMMON_STYLE = `
         justify-content: space-between;
         align-items: center;
         margin-bottom: 12px;
+        flex-wrap: wrap;
+        gap: 8px;
     }
 
     .result-header h3 {
@@ -389,10 +417,12 @@ const COMMON_STYLE = `
         display: flex;
         gap: 10px;
         margin-top: 8px;
+        flex-wrap: wrap;
     }
 
     .url-display input {
         flex: 1;
+        min-width: 150px;
         background: rgba(0, 0, 0, 0.2);
         border: 1px solid var(--border-color);
         border-radius: 10px;
@@ -426,6 +456,8 @@ const COMMON_STYLE = `
         justify-content: space-between;
         align-items: center;
         margin-bottom: 14px;
+        flex-wrap: wrap;
+        gap: 8px;
     }
 
     .history-header h4 {
@@ -466,6 +498,8 @@ const COMMON_STYLE = `
         margin-bottom: 4px;
         transition: var(--transition);
         cursor: default;
+        flex-wrap: wrap;
+        gap: 6px;
     }
 
     .history-item:hover {
@@ -478,6 +512,7 @@ const COMMON_STYLE = `
         gap: 12px;
         flex: 1;
         min-width: 0;
+        flex-wrap: wrap;
     }
 
     .history-item-code {
@@ -494,6 +529,7 @@ const COMMON_STYLE = `
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        max-width: 200px;
     }
 
     .history-item-time {
@@ -537,6 +573,7 @@ const COMMON_STYLE = `
     .badge-success { background: rgba(81, 207, 102, 0.15); color: var(--success); }
     .badge-warning { background: rgba(255, 217, 61, 0.15); color: var(--warning); }
     .badge-danger { background: rgba(255, 107, 107, 0.15); color: var(--secondary); }
+    .badge-info { background: rgba(77, 171, 247, 0.15); color: var(--info); }
 
     .checkbox-group {
         display: flex;
@@ -558,6 +595,28 @@ const COMMON_STYLE = `
         cursor: pointer;
         font-weight: 400;
         font-size: 14px;
+    }
+
+    .rule-group {
+        background: rgba(0, 0, 0, 0.1);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 12px;
+        border: 1px solid var(--border-color);
+    }
+
+    .rule-group .rule-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .rule-group .rule-header h5 {
+        color: var(--text-secondary);
+        font-size: 13px;
     }
 
     #toast {
@@ -613,10 +672,12 @@ const COMMON_STYLE = `
         padding: 8px 0;
         border-bottom: 1px solid var(--border-color);
         font-size: 13px;
+        gap: 12px;
     }
 
     .detail-row .label {
         color: var(--text-secondary);
+        flex-shrink: 0;
     }
 
     .detail-row .value {
@@ -624,33 +685,81 @@ const COMMON_STYLE = `
         font-weight: 500;
         word-break: break-all;
         text-align: right;
-        max-width: 60%;
+    }
+
+    .tab-bar {
+        display: flex;
+        gap: 4px;
+        background: rgba(0, 0, 0, 0.15);
+        border-radius: 12px;
+        padding: 4px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+        border: 1px solid var(--border-color);
+    }
+
+    .tab-btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        font-weight: 500;
+        font-size: 13px;
+        transition: var(--transition);
+        flex: 1;
+        min-width: 60px;
+    }
+
+    .tab-btn:hover {
+        color: var(--text-primary);
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .tab-btn.active {
+        background: var(--primary);
+        color: white;
+        box-shadow: 0 4px 12px rgba(108, 99, 255, 0.3);
+    }
+
+    .tab-content {
+        display: none;
+        animation: slideUp 0.3s ease;
+    }
+
+    .tab-content.active {
+        display: block;
     }
 
     @media (max-width: 640px) {
         .glass-card { padding: 20px; }
         .grid-2 { grid-template-columns: 1fr; }
         .grid-3 { grid-template-columns: 1fr 1fr; }
-        .header-bar { flex-wrap: wrap; gap: 10px; }
+        .grid-4 { grid-template-columns: 1fr 1fr; }
+        .header-bar { flex-direction: column; align-items: stretch; }
+        .header-actions { justify-content: flex-start; }
         h1 { font-size: 1.2rem; }
-        .url-display { flex-wrap: wrap; }
-        .url-display input { min-width: 150px; }
-        .history-item { flex-wrap: wrap; gap: 6px; }
+        .url-display { flex-direction: column; }
+        .url-display input { min-width: 100%; }
+        .action-buttons { width: 100%; justify-content: flex-start; }
+        .history-item { flex-direction: column; align-items: stretch; }
         .history-item-info { flex-wrap: wrap; }
-        .history-item-actions { margin-left: auto; }
+        .history-item-content { max-width: 100%; }
+        .history-item-actions { justify-content: flex-start; margin-top: 4px; }
         .stats-grid { grid-template-columns: 1fr 1fr; }
+        .tab-btn { font-size: 11px; padding: 6px 10px; }
     }
 
     @media (max-width: 480px) {
         .grid-3 { grid-template-columns: 1fr; }
+        .grid-4 { grid-template-columns: 1fr; }
         .stats-grid { grid-template-columns: 1fr; }
-        .header-actions { width: 100%; justify-content: flex-start; }
-        .history-item-actions button span { display: none; }
     }
 `;
 
 // ------------------------------------------------------------
-// 1. 首页 UI
+// 1. 首页 UI (增强版)
 // ------------------------------------------------------------
 function handleHomePage() {
     const html = `
@@ -659,7 +768,7 @@ function handleHomePage() {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>短链接生成器 ULTRA</title>
+    <title>短链接生成器 ULTRA v2.0</title>
     <style>${COMMON_STYLE}</style>
 </head>
 <body>
@@ -667,7 +776,7 @@ function handleHomePage() {
         <div class="header-bar">
             <div class="logo">
                 <div class="logo-icon">⚡</div>
-                <h1>短链接 ULTRA</h1>
+                <h1>短链接 ULTRA v2.0</h1>
             </div>
             <div class="header-actions">
                 <button class="nav-btn" onclick="location.href='/stats'">📊 统计</button>
@@ -676,57 +785,207 @@ function handleHomePage() {
             </div>
         </div>
 
+        <!-- Tab 切换 -->
+        <div class="tab-bar">
+            <button class="tab-btn active" data-tab="basic" onclick="switchTab('basic')">📝 基础</button>
+            <button class="tab-btn" data-tab="smart" onclick="switchTab('smart')">🧠 智能路由</button>
+            <button class="tab-btn" data-tab="mask" onclick="switchTab('mask')">🎭 链接伪装</button>
+            <button class="tab-btn" data-tab="advanced" onclick="switchTab('advanced')">⚙️ 高级</button>
+        </div>
+
         <form id="linkForm">
-            <div class="form-group">
-                <label for="content">📎 链接或文本内容 *</label>
-                <textarea id="content" placeholder="输入要缩短的 URL (如 https://example.com) 或任意文本..." required></textarea>
+            <!-- ===== 基础 Tab ===== -->
+            <div id="tab-basic" class="tab-content active">
+                <div class="form-group">
+                    <label for="content">📎 链接或文本内容 *</label>
+                    <textarea id="content" placeholder="输入要缩短的 URL (如 https://example.com) 或任意文本..." required></textarea>
+                </div>
+
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="customCode">🔖 自定义后缀 (可选)</label>
+                        <input type="text" id="customCode" placeholder="如: my-link" maxlength="30" pattern="[a-zA-Z0-9_-]+">
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">仅支持字母、数字、下划线、中划线</div>
+                    </div>
+                    <div class="form-group">
+                        <label for="redirectType">🔄 跳转方式</label>
+                        <select id="redirectType">
+                            <option value="302">302 临时跳转</option>
+                            <option value="301">301 永久跳转</option>
+                            <option value="307">307 严格跳转</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid-3">
+                    <div class="form-group">
+                        <label for="delay">⏱️ 延迟跳转 (秒)</label>
+                        <input type="number" id="delay" placeholder="0" min="0" max="60" value="0">
+                    </div>
+                    <div class="form-group">
+                        <label for="ttl">⏳ 有效期 (小时)</label>
+                        <input type="number" id="ttl" placeholder="永久" min="1" max="8760">
+                    </div>
+                    <div class="form-group">
+                        <label for="maxClicks">👆 最大点击次数</label>
+                        <input type="number" id="maxClicks" placeholder="不限" min="1" max="999999">
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="password">🔒 访问密码 (可选)</label>
+                        <input type="password" id="password" placeholder="留空则不设密码">
+                    </div>
+                    <div class="form-group" style="display:flex;align-items:flex-end;gap:16px;padding-bottom:4px;flex-wrap:wrap;">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="rawDisplay">
+                            <label for="rawDisplay">纯文本展示</label>
+                        </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="showPreview" checked>
+                            <label for="showPreview">显示预览</label>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="grid-2">
+            <!-- ===== 智能路由 Tab ===== -->
+            <div id="tab-smart" class="tab-content">
+                <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">根据访客设备、地理位置等条件智能跳转到不同目标</p>
+                
                 <div class="form-group">
-                    <label for="customCode">🔖 自定义后缀 (可选)</label>
-                    <input type="text" id="customCode" placeholder="如: my-link" maxlength="30" pattern="[a-zA-Z0-9_-]+">
-                    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">仅支持字母、数字、下划线、中划线</div>
+                    <label>📱 设备跳转规则</label>
+                    <div class="rule-group">
+                        <div class="rule-header">
+                            <h5>📱 移动端</h5>
+                            <button type="button" class="btn-outline" onclick="clearRule('mobile')">清除</button>
+                        </div>
+                        <input type="text" id="ruleMobile" placeholder="移动端跳转目标 URL" style="font-size:13px;">
+                    </div>
+                    <div class="rule-group">
+                        <div class="rule-header">
+                            <h5>💻 桌面端</h5>
+                            <button type="button" class="btn-outline" onclick="clearRule('desktop')">清除</button>
+                        </div>
+                        <input type="text" id="ruleDesktop" placeholder="桌面端跳转目标 URL" style="font-size:13px;">
+                    </div>
+                    <div class="rule-group">
+                        <div class="rule-header">
+                            <h5>📟 平板</h5>
+                            <button type="button" class="btn-outline" onclick="clearRule('tablet')">清除</button>
+                        </div>
+                        <input type="text" id="ruleTablet" placeholder="平板端跳转目标 URL" style="font-size:13px;">
+                    </div>
                 </div>
+
                 <div class="form-group">
-                    <label for="redirectType">🔄 跳转方式</label>
-                    <select id="redirectType">
-                        <option value="302">302 临时跳转</option>
-                        <option value="301">301 永久跳转</option>
-                        <option value="307">307 严格跳转</option>
+                    <label>🌍 地理跳转规则</label>
+                    <div id="geoRulesContainer">
+                        <div class="rule-group" id="geoRuleTemplate">
+                            <div class="rule-header">
+                                <h5>📍 国家/地区</h5>
+                                <button type="button" class="btn-danger" onclick="removeGeoRule(this)" style="padding:2px 8px;font-size:11px;">✕</button>
+                            </div>
+                            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                                <input type="text" class="geoCountry" placeholder="国家代码 (如 US, CN, GB)" style="flex:1;min-width:80px;font-size:13px;">
+                                <input type="text" class="geoUrl" placeholder="跳转目标 URL" style="flex:2;min-width:120px;font-size:13px;">
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-secondary" onclick="addGeoRule()" style="width:auto;padding:8px 16px;font-size:12px;margin-top:8px;">➕ 添加国家规则</button>
+                </div>
+
+                <div class="form-group">
+                    <label>🎯 A/B 测试 (随机分流)</label>
+                    <div id="abRulesContainer">
+                        <div class="rule-group" id="abRuleTemplate">
+                            <div class="rule-header">
+                                <h5>分流规则</h5>
+                                <button type="button" class="btn-danger" onclick="removeAbRule(this)" style="padding:2px 8px;font-size:11px;">✕</button>
+                            </div>
+                            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                                <input type="number" class="abWeight" placeholder="权重 (如 50)" min="1" max="100" style="flex:1;min-width:60px;font-size:13px;">
+                                <input type="text" class="abUrl" placeholder="跳转目标 URL" style="flex:2;min-width:120px;font-size:13px;">
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-secondary" onclick="addAbRule()" style="width:auto;padding:8px 16px;font-size:12px;margin-top:8px;">➕ 添加分流规则</button>
+                </div>
+            </div>
+
+            <!-- ===== 链接伪装 Tab ===== -->
+            <div id="tab-mask" class="tab-content">
+                <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">伪装短链接，使其看起来像是其他知名网站的链接</p>
+                
+                <div class="form-group">
+                    <label>🎭 伪装域名</label>
+                    <select id="maskDomain" onchange="updateMaskPreview()">
+                        <option value="">不使用伪装</option>
+                        <option value="google.com">google.com</option>
+                        <option value="youtube.com">youtube.com</option>
+                        <option value="facebook.com">facebook.com</option>
+                        <option value="twitter.com">twitter.com</option>
+                        <option value="instagram.com">instagram.com</option>
+                        <option value="github.com">github.com</option>
+                        <option value="stackoverflow.com">stackoverflow.com</option>
+                        <option value="wikipedia.org">wikipedia.org</option>
+                        <option value="amazon.com">amazon.com</option>
+                        <option value="apple.com">apple.com</option>
+                        <option value="microsoft.com">microsoft.com</option>
+                        <option value="custom">自定义</option>
                     </select>
                 </div>
+
+                <div class="form-group" id="customMaskGroup" style="display:none;">
+                    <label>自定义伪装域名</label>
+                    <input type="text" id="customMaskDomain" placeholder="如: example.com" oninput="updateMaskPreview()">
+                </div>
+
+                <div class="form-group">
+                    <label>🔗 伪装路径</label>
+                    <input type="text" id="maskPath" placeholder="如: /search?q=hello" value="/" oninput="updateMaskPreview()">
+                    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">访问者看到的链接路径 (建议包含 / )</div>
+                </div>
+
+                <div class="form-group">
+                    <label>📋 伪装预览</label>
+                    <div style="background:rgba(0,0,0,0.1);padding:12px;border-radius:10px;font-family:monospace;font-size:14px;color:var(--text-secondary);word-break:break-all;" id="maskPreview">
+                        选择伪装域名后预览
+                    </div>
+                </div>
+
+                <div class="checkbox-group">
+                    <input type="checkbox" id="maskEnabled">
+                    <label for="maskEnabled">✅ 启用链接伪装</label>
+                </div>
             </div>
 
-            <div class="grid-3">
+            <!-- ===== 高级 Tab ===== -->
+            <div id="tab-advanced" class="tab-content">
                 <div class="form-group">
-                    <label for="delay">⏱️ 延迟跳转 (秒)</label>
-                    <input type="number" id="delay" placeholder="0" min="0" max="60" value="0">
+                    <label>📊 是否记录详细分析数据</label>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="trackAnalytics" checked>
+                        <label for="trackAnalytics">记录访问来源、设备、地理位置等</label>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label for="ttl">⏳ 有效期 (小时)</label>
-                    <input type="number" id="ttl" placeholder="永久" min="1" max="8760">
-                </div>
-                <div class="form-group">
-                    <label for="maxClicks">👆 最大点击次数</label>
-                    <input type="number" id="maxClicks" placeholder="不限" min="1" max="999999">
-                </div>
-            </div>
 
-            <div class="grid-2">
                 <div class="form-group">
-                    <label for="password">🔒 访问密码 (可选)</label>
-                    <input type="password" id="password" placeholder="留空则不设密码">
+                    <label>🛡️ 安全设置</label>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="noReferrer">
+                        <label for="noReferrer">禁止传递 Referrer (隐私保护)</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="noFollow">
+                        <label for="noFollow">添加 rel="nofollow" (SEO)</label>
+                    </div>
                 </div>
-                <div class="form-group" style="display:flex;align-items:flex-end;gap:16px;padding-bottom:4px;">
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="rawDisplay">
-                        <label for="rawDisplay">纯文本展示</label>
-                    </div>
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="showPreview" checked>
-                        <label for="showPreview">显示预览</label>
-                    </div>
+
+                <div class="form-group">
+                    <label>📝 备注 (仅自己可见)</label>
+                    <input type="text" id="note" placeholder="添加备注信息...">
                 </div>
             </div>
 
@@ -743,7 +1002,6 @@ function handleHomePage() {
                 <div class="action-buttons">
                     <button class="btn-success" onclick="copyToClipboard()">📋 复制</button>
                     <button class="btn-secondary" onclick="openInNewTab()">🔗 打开</button>
-                    <button class="btn-secondary" onclick="toggleUrlDisplay()">👁️ 切换</button>
                 </div>
             </div>
             <div id="previewArea" style="margin-top:12px;padding:12px;background:rgba(0,0,0,0.1);border-radius:10px;font-size:13px;color:var(--text-secondary);word-break:break-all;display:none;">
@@ -753,13 +1011,14 @@ function handleHomePage() {
                 <span class="badge" id="resultCode">短码: -</span>
                 <span class="badge badge-success" id="resultStatus">状态: 正常</span>
                 <span class="badge badge-warning" id="resultExpire">过期: 永久</span>
+                <span class="badge badge-info" id="resultMask" style="display:none;">🎭 伪装中</span>
             </div>
         </div>
 
         <div class="history-section">
             <div class="history-header">
                 <h4>📜 生成历史 (最近20条)</h4>
-                <div style="display:flex;gap:8px;">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn-secondary" onclick="exportHistory()" style="padding:4px 12px;font-size:12px;">📤 导出</button>
                     <button class="btn-danger" onclick="clearHistory()">🗑️ 清空</button>
                 </div>
@@ -775,6 +1034,8 @@ function handleHomePage() {
                 <span>🔒 安全加密</span>
                 <span>📊 数据分析</span>
                 <span>🌐 全球访问</span>
+                <span>🧠 智能路由</span>
+                <span>🎭 链接伪装</span>
             </div>
         </div>
     </div>
@@ -783,39 +1044,126 @@ function handleHomePage() {
 
     <script>
         let currentShortUrl = '';
-        let currentContent = '';
-        let showOriginal = false;
+        let currentOriginalContent = '';
+        let currentIsUrl = true;
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadHistory();
-            // 检测系统主题
-            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-                document.body.setAttribute('data-theme', 'dark');
+        // ===== Tab 切换 =====
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.add('active');
+            document.querySelector(\`.tab-btn[data-tab="\${tabId}"]\`).classList.add('active');
+        }
+
+        // ===== 智能路由 - 地理规则 =====
+        function addGeoRule() {
+            const container = document.getElementById('geoRulesContainer');
+            const template = document.getElementById('geoRuleTemplate');
+            const clone = template.cloneNode(true);
+            clone.id = 'geoRule_' + Date.now();
+            clone.querySelector('.geoCountry').value = '';
+            clone.querySelector('.geoUrl').value = '';
+            clone.style.display = 'block';
+            container.appendChild(clone);
+        }
+
+        function removeGeoRule(btn) {
+            const rule = btn.closest('.rule-group');
+            if (document.querySelectorAll('.rule-group').length > 1) {
+                rule.remove();
+            } else {
+                alert('至少保留一条规则');
             }
+        }
+
+        // ===== 智能路由 - A/B测试 =====
+        function addAbRule() {
+            const container = document.getElementById('abRulesContainer');
+            const template = document.getElementById('abRuleTemplate');
+            const clone = template.cloneNode(true);
+            clone.id = 'abRule_' + Date.now();
+            clone.querySelector('.abWeight').value = '';
+            clone.querySelector('.abUrl').value = '';
+            clone.style.display = 'block';
+            container.appendChild(clone);
+        }
+
+        function removeAbRule(btn) {
+            const rule = btn.closest('.rule-group');
+            if (document.querySelectorAll('.rule-group').length > 1) {
+                rule.remove();
+            } else {
+                alert('至少保留一条规则');
+            }
+        }
+
+        // ===== 清除规则 =====
+        function clearRule(type) {
+            document.getElementById('rule' + type.charAt(0).toUpperCase() + type.slice(1)).value = '';
+        }
+
+        // ===== 链接伪装 =====
+        function updateMaskPreview() {
+            const domain = document.getElementById('maskDomain').value;
+            const customDomain = document.getElementById('customMaskDomain').value;
+            const path = document.getElementById('maskPath').value || '/';
+            const preview = document.getElementById('maskPreview');
+            
+            let displayDomain = domain;
+            if (domain === 'custom') {
+                displayDomain = customDomain || 'example.com';
+            }
+            if (!displayDomain || displayDomain === '') {
+                preview.textContent = '请选择伪装域名';
+                return;
+            }
+            preview.textContent = 'https://' + displayDomain + path;
+        }
+
+        document.getElementById('maskDomain').addEventListener('change', function() {
+            document.getElementById('customMaskGroup').style.display = this.value === 'custom' ? 'block' : 'none';
+            updateMaskPreview();
         });
 
-        function toggleTheme() {
-            const current = document.body.getAttribute('data-theme');
-            document.body.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
-            showToast(current === 'dark' ? '☀️ 浅色模式' : '🌙 深色模式');
-        }
-
-        function showToast(msg, duration = 2000) {
-            const toast = document.getElementById('toast');
-            toast.textContent = msg;
-            toast.style.display = 'block';
-            clearTimeout(toast._timer);
-            toast._timer = setTimeout(() => { toast.style.display = 'none'; }, duration);
-        }
-
+        // ===== 表单提交 =====
         document.getElementById('linkForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
             btn.disabled = true;
             btn.textContent = '⏳ 生成中...';
 
+            // 收集基础数据
+            const content = document.getElementById('content').value.trim();
+            
+            // 收集智能路由规则
+            const mobileRule = document.getElementById('ruleMobile').value.trim();
+            const desktopRule = document.getElementById('ruleDesktop').value.trim();
+            const tabletRule = document.getElementById('ruleTablet').value.trim();
+            
+            const geoRules = [];
+            document.querySelectorAll('#geoRulesContainer .rule-group').forEach(el => {
+                const country = el.querySelector('.geoCountry').value.trim().toUpperCase();
+                const url = el.querySelector('.geoUrl').value.trim();
+                if (country && url) geoRules.push({ country, url });
+            });
+
+            const abRules = [];
+            document.querySelectorAll('#abRulesContainer .rule-group').forEach(el => {
+                const weight = parseInt(el.querySelector('.abWeight').value) || 0;
+                const url = el.querySelector('.abUrl').value.trim();
+                if (weight > 0 && url) abRules.push({ weight, url });
+            });
+
+            // 收集伪装数据
+            const maskEnabled = document.getElementById('maskEnabled').checked;
+            let maskDomain = document.getElementById('maskDomain').value;
+            if (maskDomain === 'custom') {
+                maskDomain = document.getElementById('customMaskDomain').value.trim();
+            }
+            const maskPath = document.getElementById('maskPath').value.trim();
+
             const payload = {
-                content: document.getElementById('content').value.trim(),
+                content: content,
                 customCode: document.getElementById('customCode').value.trim(),
                 redirectType: parseInt(document.getElementById('redirectType').value),
                 delay: parseInt(document.getElementById('delay').value) || 0,
@@ -823,10 +1171,31 @@ function handleHomePage() {
                 ttl: parseInt(document.getElementById('ttl').value) || null,
                 maxClicks: parseInt(document.getElementById('maxClicks').value) || null,
                 rawDisplay: document.getElementById('rawDisplay').checked,
-                showPreview: document.getElementById('showPreview').checked
+                showPreview: document.getElementById('showPreview').checked,
+                
+                // 智能路由
+                smartRules: {
+                    mobile: mobileRule || null,
+                    desktop: desktopRule || null,
+                    tablet: tabletRule || null,
+                    geo: geoRules.length > 0 ? geoRules : null,
+                    ab: abRules.length > 0 ? abRules : null
+                },
+                
+                // 伪装
+                mask: maskEnabled ? {
+                    domain: maskDomain,
+                    path: maskPath || '/'
+                } : null,
+                
+                // 高级
+                trackAnalytics: document.getElementById('trackAnalytics').checked,
+                noReferrer: document.getElementById('noReferrer').checked,
+                noFollow: document.getElementById('noFollow').checked,
+                note: document.getElementById('note').value.trim() || null
             };
 
-            if (!payload.content) {
+            if (!content) {
                 alert('请填写内容');
                 btn.disabled = false;
                 btn.textContent = '🚀 生成短链接';
@@ -843,8 +1212,8 @@ function handleHomePage() {
 
                 if (data.success) {
                     currentShortUrl = data.shortUrl;
-                    currentContent = payload.content;
-                    showOriginal = false;
+                    currentOriginalContent = content;
+                    currentIsUrl = data.isUrl;
                     
                     document.getElementById('shortUrl').value = data.shortUrl;
                     document.getElementById('resultCode').textContent = '🔖 短码: ' + data.shortCode;
@@ -857,16 +1226,26 @@ function handleHomePage() {
                         document.getElementById('resultExpire').textContent = '♾️ 永久有效';
                     }
 
-                    if (payload.showPreview) {
-                        document.getElementById('previewArea').style.display = 'block';
-                        document.getElementById('contentPreview').textContent = payload.content.length > 200 ? 
-                            payload.content.substring(0, 200) + '...' : payload.content;
+                    // 伪装标记
+                    const maskBadge = document.getElementById('resultMask');
+                    if (payload.mask && payload.mask.domain) {
+                        maskBadge.style.display = 'inline-block';
                     } else {
-                        document.getElementById('previewArea').style.display = 'none';
+                        maskBadge.style.display = 'none';
+                    }
+
+                    // 预览
+                    const previewArea = document.getElementById('previewArea');
+                    if (payload.showPreview) {
+                        previewArea.style.display = 'block';
+                        document.getElementById('contentPreview').textContent = content.length > 200 ? 
+                            content.substring(0, 200) + '...' : content;
+                    } else {
+                        previewArea.style.display = 'none';
                     }
 
                     document.getElementById('result').classList.add('show');
-                    saveToHistory(data.shortCode, data.shortUrl, payload.content);
+                    saveToHistory(data.shortCode, data.shortUrl, content);
                     showToast('🎉 短链接已生成！');
                 } else {
                     alert('❌ 生成失败: ' + data.error);
@@ -879,6 +1258,21 @@ function handleHomePage() {
             }
         });
 
+        // ===== 工具函数 =====
+        function toggleTheme() {
+            const current = document.body.getAttribute('data-theme');
+            document.body.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+            showToast(current === 'dark' ? '☀️ 浅色模式' : '🌙 深色模式');
+        }
+
+        function showToast(msg, duration = 2000) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.style.display = 'block';
+            clearTimeout(toast._timer);
+            toast._timer = setTimeout(() => { toast.style.display = 'none'; }, duration);
+        }
+
         function copyToClipboard() {
             const val = document.getElementById('shortUrl').value;
             navigator.clipboard.writeText(val).then(() => showToast('📋 已复制到剪贴板！'));
@@ -887,18 +1281,6 @@ function handleHomePage() {
         function openInNewTab() {
             const val = document.getElementById('shortUrl').value;
             if (val) window.open(val, '_blank');
-        }
-
-        function toggleUrlDisplay() {
-            showOriginal = !showOriginal;
-            const input = document.getElementById('shortUrl');
-            if (showOriginal) {
-                input.value = currentContent;
-                showToast('👁️ 显示原始内容');
-            } else {
-                input.value = currentShortUrl;
-                showToast('🔗 显示短链接');
-            }
         }
 
         function saveToHistory(code, url, content) {
@@ -983,7 +1365,15 @@ function handleHomePage() {
             showToast('📤 导出成功！');
         }
 
-        // 键盘快捷键
+        // ===== 初始化 =====
+        document.addEventListener('DOMContentLoaded', () => {
+            loadHistory();
+            updateMaskPreview();
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.body.setAttribute('data-theme', 'dark');
+            }
+        });
+
         document.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 document.getElementById('linkForm').dispatchEvent(new Event('submit'));
@@ -996,7 +1386,7 @@ function handleHomePage() {
 }
 
 // ------------------------------------------------------------
-// 2. 统计页面
+// 2. 统计页面 (与之前相同)
 // ------------------------------------------------------------
 function handleStatsPage() {
     const html = `
@@ -1060,6 +1450,8 @@ function handleStatsPage() {
                 <div class="detail-row"><span class="label">延迟跳转</span><span class="value" id="resDelay">-</span></div>
                 <div class="detail-row"><span class="label">密码保护</span><span class="value" id="resPassword">-</span></div>
                 <div class="detail-row"><span class="label">最大点击</span><span class="value" id="resMaxClicks">-</span></div>
+                <div class="detail-row"><span class="label">伪装</span><span class="value" id="resMask">-</span></div>
+                <div class="detail-row"><span class="label">智能路由</span><span class="value" id="resSmart" style="font-size:12px;">-</span></div>
                 <div class="detail-row"><span class="label">来源 Top 3</span><span class="value" id="resReferrers" style="font-size:12px;">-</span></div>
                 <div class="detail-row"><span class="label">地区 Top 3</span><span class="value" id="resCountries" style="font-size:12px;">-</span></div>
                 <div class="detail-row"><span class="label">设备 Top 3</span><span class="value" id="resDevices" style="font-size:12px;">-</span></div>
@@ -1136,6 +1528,8 @@ function handleStatsPage() {
                     document.getElementById('resDelay').textContent = s.delay ? s.delay + '秒' : '直接跳转';
                     document.getElementById('resPassword').textContent = s.password ? '🔒 已设置' : '无';
                     document.getElementById('resMaxClicks').textContent = s.maxClicks || '不限';
+                    document.getElementById('resMask').textContent = s.mask ? \`🎭 \${s.mask.domain}\${s.mask.path}\` : '未启用';
+                    document.getElementById('resSmart').textContent = s.smartRules ? '✅ 已配置' : '未配置';
                     
                     document.getElementById('resReferrers').textContent = formatTop(s.referrers);
                     document.getElementById('resCountries').textContent = formatTop(s.countries);
@@ -1215,7 +1609,7 @@ function handleStatsPage() {
 }
 
 // ------------------------------------------------------------
-// 3. 管理页面
+// 3. 管理页面 (与之前相同)
 // ------------------------------------------------------------
 function handleManagePage() {
     const html = `
@@ -1250,9 +1644,7 @@ function handleManagePage() {
         </div>
 
         <div id="manageList">
-            <div style="text-align:center;padding:30px 0;color:var(--text-muted);">
-                ⏳ 加载中...
-            </div>
+            <div style="text-align:center;padding:30px 0;color:var(--text-muted);">⏳ 加载中...</div>
         </div>
 
         <div style="text-align:center;margin-top:20px;padding-top:16px;border-top:1px solid var(--border-color);">
@@ -1317,6 +1709,8 @@ function handleManagePage() {
                     </div>
                     <div style="display:flex;gap:6px;flex-wrap:wrap;">
                         <span class="badge \${link.isExpired ? 'badge-danger' : 'badge-success'}">\${link.isExpired ? '已过期' : '正常'}</span>
+                        \${link.mask ? '<span class="badge badge-info">🎭 伪装</span>' : ''}
+                        \${link.smartRules ? '<span class="badge badge-warning">🧠 智能</span>' : ''}
                         <button class="btn-secondary" onclick="window.open('/\${link.code}','_blank')" style="padding:4px 10px;font-size:12px;">🔗 访问</button>
                         <button class="btn-secondary" onclick="window.open('/stats?code=\${link.code}','_blank')" style="padding:4px 10px;font-size:12px;">📊</button>
                         <button class="btn-danger" onclick="deleteLink('\${link.code}')" style="padding:4px 10px;font-size:12px;">🗑️</button>
@@ -1361,7 +1755,7 @@ function handleManagePage() {
 }
 
 // ------------------------------------------------------------
-// 4. API 处理
+// 4. API 处理 (增强版)
 // ------------------------------------------------------------
 async function handleAPI(request, env, path) {
     const corsHeaders = {
@@ -1374,11 +1768,14 @@ async function handleAPI(request, env, path) {
         return new Response(null, { headers: corsHeaders });
     }
 
-    // 创建短链接
+    // 创建短链接 (增强版)
     if (path === '/api/create' && request.method === 'POST') {
         try {
             const body = await request.json();
-            const { content, customCode, redirectType, delay, password, ttl, maxClicks, rawDisplay } = body;
+            const { 
+                content, customCode, redirectType, delay, password, ttl, maxClicks, rawDisplay,
+                smartRules, mask, trackAnalytics, noReferrer, noFollow, note
+            } = body;
 
             if (!content || content.trim().length === 0) {
                 return new Response(JSON.stringify({ success: false, error: '内容不能为空' }), { status: 400, headers: corsHeaders });
@@ -1415,6 +1812,60 @@ async function handleAPI(request, env, path) {
                 expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
             }
 
+            // 验证智能路由规则
+            let validatedSmartRules = null;
+            if (smartRules) {
+                const rules = {};
+                
+                // 设备规则 - 验证 URL
+                if (smartRules.mobile && formatUrl(smartRules.mobile).isValid) {
+                    rules.mobile = formatUrl(smartRules.mobile).url;
+                }
+                if (smartRules.desktop && formatUrl(smartRules.desktop).isValid) {
+                    rules.desktop = formatUrl(smartRules.desktop).url;
+                }
+                if (smartRules.tablet && formatUrl(smartRules.tablet).isValid) {
+                    rules.tablet = formatUrl(smartRules.tablet).url;
+                }
+                
+                // 地理规则
+                if (smartRules.geo && smartRules.geo.length > 0) {
+                    rules.geo = smartRules.geo
+                        .filter(g => g.country && g.url && formatUrl(g.url).isValid)
+                        .map(g => ({ country: g.country.toUpperCase(), url: formatUrl(g.url).url }));
+                    if (rules.geo.length === 0) delete rules.geo;
+                }
+                
+                // A/B 测试规则
+                if (smartRules.ab && smartRules.ab.length > 0) {
+                    const validAb = smartRules.ab
+                        .filter(a => a.weight > 0 && a.url && formatUrl(a.url).isValid)
+                        .map(a => ({ weight: a.weight, url: formatUrl(a.url).url }));
+                    if (validAb.length > 0) {
+                        // 归一化权重
+                        const totalWeight = validAb.reduce((sum, a) => sum + a.weight, 0);
+                        rules.ab = validAb.map(a => ({ 
+                            weight: Math.round((a.weight / totalWeight) * 100),
+                            url: a.url 
+                        }));
+                    }
+                }
+                
+                if (Object.keys(rules).length > 0) {
+                    validatedSmartRules = rules;
+                }
+            }
+
+            // 验证伪装配置
+            let validatedMask = null;
+            if (mask && mask.domain) {
+                const domain = mask.domain.trim();
+                const path = mask.path || '/';
+                if (domain && /^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$/.test(domain)) {
+                    validatedMask = { domain, path };
+                }
+            }
+
             const linkData = {
                 content: urlCheck.isValid ? urlCheck.url : content.trim(),
                 isUrl: urlCheck.isValid,
@@ -1431,18 +1882,31 @@ async function handleAPI(request, env, path) {
                 countries: {},
                 devices: {},
                 visitors: [],
-                uniqueVisitors: 0
+                uniqueVisitors: 0,
+                // 新增字段
+                smartRules: validatedSmartRules,
+                mask: validatedMask,
+                trackAnalytics: trackAnalytics !== false,
+                noReferrer: noReferrer || false,
+                noFollow: noFollow || false,
+                note: note || null
             };
 
             await env.LINKS_KV.put(shortCode, JSON.stringify(linkData), kvOptions);
 
-            const shortUrl = `${new URL(request.url).origin}/${shortCode}`;
+            // 如果有伪装，生成伪装链接
+            let shortUrl = `${new URL(request.url).origin}/${shortCode}`;
+            if (validatedMask) {
+                // 使用伪装域名 + 真实短码作为路径
+                shortUrl = `https://${validatedMask.domain}${validatedMask.path}${shortCode}`;
+            }
 
             return new Response(JSON.stringify({
                 success: true,
                 shortUrl: shortUrl,
                 shortCode: shortCode,
-                isUrl: linkData.isUrl
+                isUrl: linkData.isUrl,
+                mask: validatedMask ? true : false
             }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
         } catch (err) {
@@ -1450,7 +1914,7 @@ async function handleAPI(request, env, path) {
         }
     }
 
-    // 获取统计数据
+    // 获取统计数据 (增强版)
     if (path.startsWith('/api/stats/') && request.method === 'GET') {
         const code = path.substring('/api/stats/'.length);
         const linkDataStr = await env.LINKS_KV.get(code);
@@ -1482,12 +1946,15 @@ async function handleAPI(request, env, path) {
                 maxClicks: data.maxClicks,
                 referrers: data.referrers || {},
                 countries: data.countries || {},
-                devices: data.devices || {}
+                devices: data.devices || {},
+                mask: data.mask || null,
+                smartRules: data.smartRules ? true : false,
+                note: data.note || null
             }
         }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
 
-    // 列出所有链接
+    // 列出所有链接 (增强版)
     if (path === '/api/list' && request.method === 'GET') {
         try {
             const list = await env.LINKS_KV.list({ limit: 100 });
@@ -1503,7 +1970,9 @@ async function handleAPI(request, env, path) {
                         content: parsed.content,
                         clicks: parsed.clicks || 0,
                         createdAt: parsed.createdAt,
-                        isExpired: isExpired
+                        isExpired: isExpired,
+                        mask: !!parsed.mask,
+                        smartRules: !!parsed.smartRules
                     });
                 }
             }
@@ -1529,7 +1998,7 @@ async function handleAPI(request, env, path) {
 }
 
 // ------------------------------------------------------------
-// 5. 处理短链接访问
+// 5. 处理短链接访问 (增强版 - 智能路由 + 伪装)
 // ------------------------------------------------------------
 async function handleShortLink(request, env, ctx, shortCode) {
     const linkDataStr = await env.LINKS_KV.get(shortCode);
@@ -1542,7 +2011,6 @@ async function handleShortLink(request, env, ctx, shortCode) {
     }
 
     const linkData = JSON.parse(linkDataStr);
-    const url = new URL(request.url);
 
     // 检查过期
     if (linkData.expiresAt && new Date(linkData.expiresAt).getTime() < Date.now()) {
@@ -1562,6 +2030,7 @@ async function handleShortLink(request, env, ctx, shortCode) {
 
     // 密码验证
     if (linkData.password) {
+        const url = new URL(request.url);
         const reqPassword = url.searchParams.get('pwd') || 
                            (request.method === 'POST' ? (await request.formData()).get('pwd') : null);
         if (reqPassword !== linkData.password) {
@@ -1569,54 +2038,126 @@ async function handleShortLink(request, env, ctx, shortCode) {
         }
     }
 
-    // 异步更新统计
-    ctx.waitUntil((async () => {
-        const clientIP = getClientIP(request);
-        
-        linkData.clicks = (linkData.clicks || 0) + 1;
-        linkData.lastAccessedAt = new Date().toISOString();
+    // ===== 智能路由逻辑 =====
+    let targetUrl = linkData.content;
+    let usedSmartRule = null;
 
-        // 独立访客统计
-        if (!linkData.visitors) linkData.visitors = [];
-        if (!linkData.visitors.includes(clientIP)) {
-            linkData.visitors.push(clientIP);
-            linkData.uniqueVisitors = linkData.visitors.length;
-        }
-
-        // Referer 统计
-        const ref = request.headers.get('referer');
-        if (ref) {
-            try {
-                const host = new URL(ref).hostname;
-                linkData.referrers[host] = (linkData.referrers[host] || 0) + 1;
-            } catch (_) {}
-        }
-
-        // 地区统计
-        const country = request.cf?.country || '其他';
-        linkData.countries[country] = (linkData.countries[country] || 0) + 1;
-
-        // 设备统计
+    if (linkData.smartRules) {
+        const rules = linkData.smartRules;
         const userAgent = request.headers.get('user-agent') || '';
-        let device = '其他';
-        if (/mobile/i.test(userAgent)) device = '移动端';
-        else if (/tablet/i.test(userAgent)) device = '平板';
-        else if (/bot|crawler|spider/i.test(userAgent)) device = '爬虫';
-        else device = '桌面端';
-        linkData.devices[device] = (linkData.devices[device] || 0) + 1;
+        const deviceType = getDeviceType(userAgent);
+        const country = getCountry(request);
+
+        // 1. 设备规则 (优先级最高)
+        if (deviceType === 'mobile' && rules.mobile) {
+            targetUrl = rules.mobile;
+            usedSmartRule = 'mobile';
+        } else if (deviceType === 'tablet' && rules.tablet) {
+            targetUrl = rules.tablet;
+            usedSmartRule = 'tablet';
+        } else if (deviceType === 'desktop' && rules.desktop) {
+            targetUrl = rules.desktop;
+            usedSmartRule = 'desktop';
+        }
+
+        // 2. 地理规则 (如果设备规则未命中)
+        if (!usedSmartRule && rules.geo) {
+            const matchedGeo = rules.geo.find(g => g.country === country);
+            if (matchedGeo) {
+                targetUrl = matchedGeo.url;
+                usedSmartRule = 'geo:' + country;
+            }
+        }
+
+        // 3. A/B 测试 (如果前面的规则都未命中)
+        if (!usedSmartRule && rules.ab && rules.ab.length > 0) {
+            const random = Math.random() * 100;
+            let cumulative = 0;
+            for (const ab of rules.ab) {
+                cumulative += ab.weight;
+                if (random <= cumulative) {
+                    targetUrl = ab.url;
+                    usedSmartRule = 'ab:' + ab.weight + '%';
+                    break;
+                }
+            }
+        }
+    }
+
+    // ===== 异步更新统计 =====
+    ctx.waitUntil((async () => {
+        if (linkData.trackAnalytics !== false) {
+            const clientIP = getClientIP(request);
+            
+            linkData.clicks = (linkData.clicks || 0) + 1;
+            linkData.lastAccessedAt = new Date().toISOString();
+
+            if (!linkData.visitors) linkData.visitors = [];
+            if (!linkData.visitors.includes(clientIP)) {
+                linkData.visitors.push(clientIP);
+                linkData.uniqueVisitors = linkData.visitors.length;
+            }
+
+            const ref = request.headers.get('referer');
+            if (ref) {
+                try {
+                    const host = new URL(ref).hostname;
+                    linkData.referrers[host] = (linkData.referrers[host] || 0) + 1;
+                } catch (_) {}
+            }
+
+            const country = request.cf?.country || '其他';
+            linkData.countries[country] = (linkData.countries[country] || 0) + 1;
+
+            const userAgent = request.headers.get('user-agent') || '';
+            let device = '其他';
+            if (/mobile/i.test(userAgent)) device = '移动端';
+            else if (/tablet/i.test(userAgent)) device = '平板';
+            else if (/bot|crawler|spider/i.test(userAgent)) device = '爬虫';
+            else device = '桌面端';
+            linkData.devices[device] = (linkData.devices[device] || 0) + 1;
+
+            // 记录使用的智能路由规则
+            if (usedSmartRule) {
+                if (!linkData.smartUsage) linkData.smartUsage = {};
+                linkData.smartUsage[usedSmartRule] = (linkData.smartUsage[usedSmartRule] || 0) + 1;
+            }
+        }
 
         await env.LINKS_KV.put(shortCode, JSON.stringify(linkData));
     })());
 
-    // 跳转逻辑
+    // ===== 跳转逻辑 =====
     if (linkData.isUrl && !linkData.rawDisplay) {
-        if (linkData.delay > 0) {
-            return handleDelayRedirectPage(linkData.content, linkData.delay);
+        // 构建跳转响应
+        let status = linkData.redirectType || 302;
+        const headers = new Headers();
+        headers.set('Location', targetUrl);
+        
+        // 隐私设置
+        if (linkData.noReferrer) {
+            headers.set('Referrer-Policy', 'no-referrer');
         }
-        return Response.redirect(linkData.content, linkData.redirectType || 302);
+        
+        // SEO 设置
+        if (linkData.noFollow) {
+            // 仅对 HTML 页面有效，重定向不影响
+        }
+
+        if (linkData.delay > 0) {
+            return handleDelayRedirectPage(targetUrl, linkData.delay, shortCode);
+        }
+
+        // 伪装：如果启用，在重定向时保留伪装域名
+        if (linkData.mask) {
+            // 使用伪装域名作为显示，但实际跳转不变
+            // 通过 HTML 页面展示伪装效果
+            return handleMaskedRedirectPage(targetUrl, linkData.mask, shortCode, status);
+        }
+
+        return new Response(null, { status, headers });
     }
 
-    // 文本展示
     if (linkData.rawDisplay) {
         return new Response(linkData.content, { 
             headers: { 'Content-Type': 'text/plain; charset=utf-8' } 
@@ -1626,7 +2167,82 @@ async function handleShortLink(request, env, ctx, shortCode) {
     }
 }
 
-// 密码输入页面
+// ===== 伪装重定向页面 =====
+function handleMaskedRedirectPage(targetUrl, mask, shortCode, status) {
+    return new Response(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="0;url=${targetUrl}">
+    <title>${mask.domain}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0a1a;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            text-align: center;
+        }
+        .container {
+            max-width: 500px;
+            padding: 40px;
+        }
+        .domain {
+            font-size: 24px;
+            color: #6C63FF;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .path {
+            color: rgba(255,255,255,0.4);
+            font-size: 14px;
+            margin-bottom: 20px;
+            font-family: monospace;
+        }
+        .loader {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(108,99,255,0.1);
+            border-top: 3px solid #6C63FF;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .note {
+            color: rgba(255,255,255,0.3);
+            font-size: 12px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="domain">${mask.domain}</div>
+        <div class="path">${mask.path}${shortCode}</div>
+        <div class="loader"></div>
+        <p style="color:rgba(255,255,255,0.5);font-size:14px;">正在跳转...</p>
+        <div class="note">🔗 短链接 ULTRA v2.0</div>
+    </div>
+    <script>
+        // 立即跳转
+        window.location.href = "${targetUrl}";
+    </script>
+</body>
+</html>`, { 
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' } 
+    });
+}
+
+// ===== 密码页面 =====
 function handlePasswordPage(shortCode) {
     return new Response(`<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1646,8 +2262,8 @@ function handlePasswordPage(shortCode) {
 </body></html>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-// 延迟跳转页面
-function handleDelayRedirectPage(targetUrl, delaySeconds) {
+// ===== 延迟跳转页面 =====
+function handleDelayRedirectPage(targetUrl, delaySeconds, shortCode) {
     return new Response(`<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>跳转中...</title>
@@ -1673,7 +2289,7 @@ function handleDelayRedirectPage(targetUrl, delaySeconds) {
 </body></html>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
-// 文本展示页面
+// ===== 文本内容页面 =====
 function handleTextContentPage(content, shortCode, clicks) {
     return new Response(`<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1693,7 +2309,7 @@ function handleTextContentPage(content, shortCode, clicks) {
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px;">
         <span style="color:var(--text-muted);font-size:13px;">👁️ 浏览次数: ${clicks}</span>
-        <div style="display:flex;gap:8px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
             <button class="btn-secondary" onclick="navigator.clipboard.writeText('${content.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}').then(()=>alert('已复制'))" style="padding:6px 14px;font-size:12px;">📋 复制内容</button>
             <a href="/" class="btn-primary" style="display:inline-block;width:auto;padding:8px 18px;text-decoration:none;font-size:13px;">⚡ 创建短链接</a>
         </div>
