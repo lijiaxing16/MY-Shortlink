@@ -57,7 +57,8 @@
 返回你的 Worker 设置页面：点击 Worker 名称 $\rightarrow$ 设置（Settings）$\rightarrow$ 变量（Variables）。
 找到 KV 命名空间绑定（KV Namespace Bindings），点击 添加绑定。
 参数设置如下：
-变量名称 (Variable name)：必须严格填写为 LINKS_KV
+变量名称 (Variable name)：必须严格填写为 LINKS_KV。
+
 KV 命名空间 (KV namespace)：选择你在第一步创建的 KV 实例。
 点击 保存并部署。
 
