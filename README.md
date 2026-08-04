@@ -37,6 +37,7 @@
 在左侧导航栏点击 Workers 与 Pages $\rightarrow$ KV。
 点击 创建命名空间。
 名称填写：LINKS_KV（或其他自定义名称），点击 添加。
+
 #⚡ 第二步：创建并部署 Cloudflare Worker
 创建 Worker
 
@@ -48,21 +49,26 @@
 部署完成后，点击 编辑代码（Edit Code）。
 清空原有内容，将上方提供的 完整 JavaScript 代码 全部粘贴进去。
 点击右上角 保存并部署（Save and Deploy）。
+
+
 #🔗 第三步：绑定 KV 命名空间（关键）
 如果不绑定 KV 数据库，短链接将无法保存与读取。
-
 返回你的 Worker 设置页面：点击 Worker 名称 $\rightarrow$ 设置（Settings）$\rightarrow$ 变量（Variables）。
 找到 KV 命名空间绑定（KV Namespace Bindings），点击 添加绑定。
 参数设置如下：
 变量名称 (Variable name)：必须严格填写为 LINKS_KV
 KV 命名空间 (KV namespace)：选择你在第一步创建的 KV 实例。
 点击 保存并部署。
+
+
 #🌐 第四步：绑定自定义域名（可选，推荐）
 Cloudflare 默认提供的 *.workers.dev 域名在部分地区或社交软件内可能会受到限制。推荐绑定你自己的域名：
 进入 Worker 页面 $\rightarrow$ 设置 $\rightarrow$ 触发器（Triggers）。
 点击 添加自定义域名（Custom Domain）。
 输入你已托管在 Cloudflare 上的二级域名（例如 s.yourdomain.com）。
 点击 绑定域名，Cloudflare 会自动解析并配置 SSL 证书。
+
+
 #🎯 高级功能使用指南
 #功能模块	使用说明
 #🎭 链接伪装 (Iframe)	在下拉框中选择 网页伪装 (Iframe防红/不显原URL)。生成后访问者在浏览器地址栏只会看到你的短链接地址，网页内容则全屏加载目标网址。
